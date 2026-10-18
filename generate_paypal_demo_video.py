@@ -162,7 +162,7 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
 
 
 # ==============================================================================
-# PHANToM GRID 1440P 字幕幾何自動調整核心算子 (二辦小米標準規格)
+# PHANToM GRID 1440P 字幕幾何自動調整核心算子 (左右死鎖 160px + 字體自動調整)
 # ==============================================================================
 def render_adaptive_subtitle(draw, subtitle_text: str, box_left=80, box_top=1150, box_w=2400, box_h=180):
     # 0. 精美科技字幕外框與頂部導航資訊
@@ -172,46 +172,39 @@ def render_adaptive_subtitle(draw, subtitle_text: str, box_left=80, box_top=1150
     draw.text((1920, box_top + 17), "AUDIO TELEMETRY: 22.05 kHz / -28dB ACTIVE", font=font_mono_sm, fill=(56, 189, 248))
     draw.line([(box_left + 25, box_top + 52), (box_left + box_w - 25, box_top + 52)], fill=(30, 58, 95), width=1)
 
-    # 1. 統帥指定死卡邊界常數
-    PADDING_X = 160  # 左右各死鎖 160px
-    MAX_TEXT_WIDTH = box_w - (PADDING_X * 2)  # 2400 - 320 = 2080 px
+    # 1. 統帥指定死卡邊界常數：左右各死鎖 160px (不可變更)
+    PADDING_X = 160
+    TARGET_WIDTH = box_w - (PADDING_X * 2)  # 2400 - 320 = 2080 px
 
-    # 2. 自動調整字級階梯 (由大到小貪婪試探，兼顧飽滿度與安全性)
-    FONT_CANDIDATES = [42, 40, 38, 36, 34, 32, 30, 28]
-
-    chosen_font = None
-    chosen_size = 28
-    lines = [subtitle_text]
-
-    # [階段一：單行優先試探] 只要單行能塞進 2080px，強制取最大的字級！
-    for size in FONT_CANDIDATES:
-        font = get_font(size)
-        text_w = draw.textlength(subtitle_text, font=font)
-        if text_w <= MAX_TEXT_WIDTH:
-            chosen_font = font
-            chosen_size = size
-            lines = [subtitle_text]
+    # 2. 自動調整字級階梯 (由大到小貪婪試探，自動匹配最佳字號)
+    words = subtitle_text.split(" ")
+    num_gaps = len(words) - 1
+    
+    best_size = 22
+    for s in range(46, 20, -1):
+        f = ImageFont.truetype("arialbd.ttf", s)
+        total_word_w = sum(draw.textlength(w, font=f) for w in words)
+        space_w = draw.textlength(" ", font=f) * num_gaps
+        if total_word_w + space_w <= TARGET_WIDTH:
+            best_size = s
             break
-
-    # [階段二：極限長句自適應折行] 若 28pt 仍超過 2080px，自動拆為兩行並鎖定 28pt~30pt
-    if chosen_font is None:
-        chosen_size = 28
-        chosen_font = get_font(chosen_size)
-        lines = wrap_text_by_words(subtitle_text, chosen_font, MAX_TEXT_WIDTH, draw)
-
-    # 3. 畫布絕對居中渲染 (水平居中 + 垂直居中)
+            
+    chosen_font = ImageFont.truetype("arialbd.ttf", best_size)
+    word_ws = [draw.textlength(w, font=chosen_font) for w in words]
+    tot_word_w = sum(word_ws)
+    
+    # 3. 左右死鎖 160px 核心算法：微調詞間隙使得整行左右起迄點一毫不差貼齊 2080px
+    gap = (TARGET_WIDTH - tot_word_w) / max(num_gaps, 1)
+    
+    # 4. 垂直絕對居中渲染
     content_top = box_top + 52
     content_h = box_h - 52
-    line_height = chosen_size * 1.3
-    total_text_h = len(lines) * line_height
-    start_y = content_top + (content_h - total_text_h) / 2
-
-    for i, line in enumerate(lines):
-        line_w = draw.textlength(line, font=chosen_font)
-        # 居中計算：以 box_left + PADDING_X 為基礎，在 2080px 寬度內置中
-        pos_x = (box_left + PADDING_X) + (MAX_TEXT_WIDTH - line_w) / 2
-        pos_y = start_y + (i * line_height)
-        draw.text((pos_x, pos_y), line, font=chosen_font, fill=(255, 255, 255))
+    pos_y = content_top + (content_h - best_size * 1.25) / 2
+    
+    cur_x = box_left + PADDING_X
+    for w_i, word in enumerate(words):
+        draw.text((cur_x, pos_y), word, font=chosen_font, fill=(255, 255, 255))
+        cur_x += word_ws[w_i] + gap
 
 
 def draw_subtitles(draw, current_text: str):
