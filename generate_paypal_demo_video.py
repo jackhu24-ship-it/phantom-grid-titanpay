@@ -54,7 +54,7 @@ try:
 except Exception:
     font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_btn = ImageFont.load_default()
 
-GREEDY_SIZES = [40, 38, 36, 34, 32, 30, 28, 26]
+GREEDY_SIZES = [44, 42, 40, 38, 36, 34, 32, 30, 28, 26]
 TARGET_MAX_WIDTH = 2150
 
 try:
@@ -63,8 +63,8 @@ except Exception:
     SUB_FONTS = {s: ImageFont.load_default() for s in GREEDY_SIZES}
 
 
-def generate_speech_wav(text: str, output_wav: Path):
-    """Generate offline English speech using Windows SAPI with Zira voice and XML phonetics inside <speak>."""
+def generate_sentence_wav(text: str, output_wav: Path):
+    """Generate offline English speech for a single sentence using Windows SAPI at Rate 1 with SSML phonetics."""
     import win32com.client
     speaker = win32com.client.Dispatch("SAPI.SpVoice")
     for i in range(speaker.GetVoices().Count):
@@ -72,12 +72,11 @@ def generate_speech_wav(text: str, output_wav: Path):
         if "Zira" in desc or "English" in desc:
             speaker.Voice = speaker.GetVoices().Item(i)
             break
-    speaker.Rate = 0  # Normal speed
+    speaker.Rate = 1  # Crisp, professional tech tempo
     speaker.Volume = 100
     
-    # Pure clean punctuation and phonetic markup
     clean_text = text.replace("...", ",").replace("--", ",")
-    spoken_text = clean_text
+    spoken_text = clean_text.replace("DvP", "D v P").replace("ASIL-D", "A S I L D")
     spoken_text = spoken_text.replace("Hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
     spoken_text = spoken_text.replace("hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
     spoken_text = spoken_text.replace("TitanPay", '<pron sym="t ay t ax n p ey">TitanPay</pron>')
@@ -85,14 +84,14 @@ def generate_speech_wav(text: str, output_wav: Path):
     spoken_text = spoken_text.replace("Xiaomi", '<pron sym="sh yaao m ee">Xiaomi</pron>')
     spoken_text = spoken_text.replace("xiaomi", '<pron sym="sh yaao m ee">Xiaomi</pron>')
     
-    ssml_envelope = f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">{spoken_text}</speak>'
+    ssml = f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">{spoken_text}</speak>'
     
-    filestream = win32com.client.Dispatch("SAPI.SpFileStream")
+    stream = win32com.client.Dispatch("SAPI.SpFileStream")
     output_wav.parent.mkdir(parents=True, exist_ok=True)
-    filestream.Open(str(output_wav), 3)  # 3 = SSFMCreateForWrite
-    speaker.AudioOutputStream = filestream
-    speaker.Speak(ssml_envelope, 8)
-    filestream.Close()
+    stream.Open(str(output_wav), 3, False)
+    speaker.AudioOutputStream = stream
+    speaker.Speak(ssml, 8)  # 8 = SVSFIsXML
+    stream.Close()
 
 
 def get_audio_duration(audio_path: Path) -> float:
@@ -118,8 +117,16 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
     # 2. Separator line at X=1030
     draw.line([(1030, 20), (1030, 90)], fill=(51, 65, 85), width=2)
     
-    # 3. Chapter title positioned safely at X=1060 (Safe Breathing Gap >= 274px > 110px)
-    draw.text((1060, 36), f"ACT {act_num}: {act_title}", font=font_body_bold, fill=(56, 189, 248))
+    # 3. Chapter title with adaptive metrics (Guarantees >= 80px safe buffer before X=1850)
+    chapter_text = f"ACT {act_num}: {act_title}"
+    act_font = font_body_bold
+    act_w = draw.textlength(chapter_text, font=act_font)
+    if act_w > 760:
+        act_font = font_body  # 22pt
+        act_w = draw.textlength(chapter_text, font=act_font)
+    if act_w > 760:
+        act_font = font_mono_sm  # 18pt
+    draw.text((1060, 38), chapter_text, font=act_font, fill=(56, 189, 248))
     
     # 4. Right side separator
     draw.line([(1850, 20), (1850, 90)], fill=(51, 65, 85), width=2)
@@ -131,21 +138,21 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
     draw.text((1945, 36), status_text, font=font_body_bold, fill=(16, 185, 129))
 
 
-def draw_subtitles(draw, sentence_idx: int, sentences: list):
+def draw_subtitles(draw, current_text: str):
     """
     Broadcast Subtitle Bar with Top-Down Greedy Font Fit Algorithm:
     - Target max width: TARGET_MAX_WIDTH = 2150 px.
-    - Candidate sizes: [40, 38, 36, 34, 32, 30, 28, 26] (top-down greedy evaluation).
+    - Candidate sizes: [44, 42, 40, 38, 36, 34, 32, 30, 28, 26] (top-down greedy evaluation).
     - If size 26pt still > 2150px, wraps into 2 lines at 28pt.
-    - Centered horizontally and vertically in the subtitle box, eliminating empty space.
+    - Eliminates empty space with telemetry header bar, separator line, and proportional typography.
     """
     box = [60, 1150, 2500, 1330]
     draw.rounded_rectangle(box, radius=12, fill=(10, 16, 28), outline=(0, 229, 255), width=3)
     
-    # Gold header
+    # Subtitle Header Bar
     draw.text((95, 1165), "[AI NARRATOR] VERBATIM SPEECH SYNCHRONIZED", font=font_sub_head, fill=(251, 191, 36))
-    
-    current_text = sentences[min(sentence_idx, len(sentences) - 1)]
+    draw.text((1920, 1167), "AUDIO TELEMETRY: 22.05 kHz / -28dB ACTIVE", font=font_mono_sm, fill=(56, 189, 248))
+    draw.line([(85, 1202), (2475, 1202)], fill=(30, 58, 95), width=1)
     
     chosen_size = None
     chosen_w = None
@@ -168,16 +175,16 @@ def draw_subtitles(draw, sentence_idx: int, sentences: list):
         chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
         
     if len(lines) == 1:
-        # Single-line centered horizontally and vertically
+        # Single-line centered horizontally and vertically in bottom area (y=1202 to y=1330)
         x = int((CANVAS_WIDTH - chosen_w) / 2)
-        y = int(1260 - chosen_size / 2)
+        y = int(1266 - chosen_size / 2)
         draw.text((x, y), lines[0], font=chosen_font, fill=(255, 255, 255))
     else:
         # Two-lines centered horizontally
         for i, line_str in enumerate(lines[:2]):
             lw = draw.textlength(line_str, font=chosen_font)
             lx = int((CANVAS_WIDTH - lw) / 2)
-            ly = 1208 + i * 42
+            ly = 1222 + i * 44
             draw.text((lx, ly), line_str, font=chosen_font, fill=(255, 255, 255))
 
 
@@ -332,7 +339,7 @@ def render_paypal_demo_video():
             },
             {
                 "act": 3,
-                "title": "1,000 CYCLES HIGH-FREQUENCY CONCURRENCY HARNESS",
+                "title": "1,000 CYCLES CONCURRENCY HARNESS",
                 "sentences": [
                     "Our formal verification harness executes 1,000 continuous stress cycles under adversarial network partition and timeout chaos injections.",
                     "Throughout rapid burst concurrency, every single transaction preserves the fundamental mathematical invariant of net zero capital leakage.",
@@ -355,7 +362,7 @@ def render_paypal_demo_video():
             },
             {
                 "act": 4,
-                "title": "LIVE SETTLEMENT PROOF: DISPATCH, ATOMIC SWAP & RECLAIM",
+                "title": "LIVE ATOMIC SWAP & RECLAIM PROOF",
                 "sentences": [
                     "Witness live execution proof, an incoming agentic payment request is authenticated via PayPal Sandbox v2 in sub-millisecond latency.",
                     "Both legs lock simultaneously into escrow, while our hardware-enforced circuit breaker monitors real-time telemetry.",
@@ -378,7 +385,7 @@ def render_paypal_demo_video():
             },
             {
                 "act": 5,
-                "title": "OPEN-SOURCE REPOSITORY & OFFICIAL SUBMISSION",
+                "title": "OPEN REPO & OFFICIAL SUBMISSION",
                 "sentences": [
                     "Engineered in pure Solo Architect mode by Commander Jack Hu with autonomous agent swarms, TitanPay is ready for enterprise adoption.",
                     "Complete with open-source GitHub repository, comprehensive test suites, and cryptographic audit receipts co-signed with Secretary Xiaomi.",
@@ -415,36 +422,99 @@ def render_paypal_demo_video():
     # 5 acts x 32.0s = 160.0s target
     act_durations = [32.0] * total_acts
     
-    # 1. Synthesize audio per act
-    print("[*] Generating SAPI Audio with SSML <speak> & <pron sym='...'> tags...")
+    # 1. Synthesize audio per sentence & compute dynamic timeline slots
+    print("[*] Generating Per-Sentence SAPI Audio with SSML, 50ms Fades & Timeline Sync...")
+    crossfade_dur = 0.08
+    seg_pad_dur = 32.064  # 5 * 32.064 - 4 * 0.08 = 160.00s
+    padded_wavs = []
+    act_timeline_slots = []
+    
     for act_idx, act in enumerate(config["acts"]):
-        full_text = " ".join(act["sentences"])
-        wav_path = temp_dir / f"act_{act_idx+1}.wav"
-        generate_speech_wav(full_text, wav_path)
-        raw_dur = get_audio_duration(wav_path)
-        print(f"  [Act {act_idx+1}] Raw Speech: {raw_dur:.2f}s -> Target: 32.00s")
+        sentences = act["sentences"]
+        sen_wavs = []
+        sen_durs = []
+        
+        # Synthesize each sentence
+        for s_idx, sen_text in enumerate(sentences):
+            raw_sen_wav = temp_dir / f"act_{act_idx+1}_sen_{s_idx+1}_raw.wav"
+            faded_sen_wav = temp_dir / f"act_{act_idx+1}_sen_{s_idx+1}_faded.wav"
+            generate_sentence_wav(sen_text, raw_sen_wav)
+            dur = get_audio_duration(raw_sen_wav)
+            sen_durs.append(dur)
+            
+            fade_out_start = max(0.01, dur - 0.05)
+            filter_str = f"afade=t=in:ss=0:d=0.05,afade=t=out:st={fade_out_start:.3f}:d=0.05"
+            subprocess.run([
+                "ffmpeg", "-y", "-i", str(raw_sen_wav),
+                "-af", filter_str,
+                str(faded_sen_wav)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            sen_wavs.append(faded_sen_wav)
+            
+        total_speech_dur = sum(sen_durs)
+        rem_pause = max(0.1, seg_pad_dur - total_speech_dur)
+        pause_per_sen = rem_pause / len(sentences)
+        
+        # Build timeline slots and pad each sentence
+        act_slots = []
+        accum_t = 0.0
+        padded_sen_wavs = []
+        
+        for s_idx, (f_wav, dur) in enumerate(zip(sen_wavs, sen_durs)):
+            pad_sen_wav = temp_dir / f"act_{act_idx+1}_sen_{s_idx+1}_padded.wav"
+            target_sen_dur = dur + pause_per_sen
+            act_slots.append((accum_t, accum_t + target_sen_dur, sentences[s_idx]))
+            accum_t += target_sen_dur
+            
+            subprocess.run([
+                "ffmpeg", "-y", "-i", str(f_wav),
+                "-af", f"apad=whole_dur={target_sen_dur:.3f}",
+                str(pad_sen_wav)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            padded_sen_wavs.append(pad_sen_wav)
+            
+        act_timeline_slots.append(act_slots)
+        
+        # Concat sentences into act_padded.wav
+        act_padded = temp_dir / f"act_{act_idx+1}_padded.wav"
+        concat_txt = temp_dir / f"act_{act_idx+1}_concat.txt"
+        with open(concat_txt, "w", encoding="utf-8") as f_txt:
+            for psw in padded_sen_wavs:
+                f_txt.write(f"file '{psw.name}'\n")
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_txt),
+            "-c", "copy",
+            str(act_padded)
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        padded_wavs.append(act_padded)
+        
+        print(f"  [Act {act_idx+1}] Speech: {total_speech_dur:.2f}s | Pauses: {rem_pause:.2f}s ({pause_per_sen:.2f}s/sen) -> Slot: {accum_t:.2f}s")
         
     total_duration = sum(act_durations)
     print(f"[*] Total Target Duration: {total_duration:.2f}s (2m 40s)")
     
-    # 2. Render frames
-    print("[*] Rendering 1440P Frames with Dynamic Single-Line Auto-Fit Subtitles...")
+    # 2. Render frames with synchronized timeline slots
+    print("[*] Rendering 1440P Frames with Synchronized Dynamic Subtitles...")
     global_frame_idx = 0
     for act_idx, act in enumerate(config["acts"]):
         dur = act_durations[act_idx]
         total_frames_act = int(dur * FPS)
-        sentences = act["sentences"]
-        sec_per_sentence = dur / len(sentences)
+        slots = act_timeline_slots[act_idx]
         
         for f in range(total_frames_act):
             progress = f / max(total_frames_act - 1, 1)
             img = render_scene(config, act_idx, progress)
             draw = ImageDraw.Draw(img)
             
-            # Subtitle sync
+            # Subtitle sync via exact timeline slot
             current_sec = f / FPS
-            sentence_idx = min(int(current_sec / sec_per_sentence), len(sentences) - 1)
-            draw_subtitles(draw, sentence_idx, sentences)
+            active_text = slots[-1][2]
+            for start_t, end_t, text in slots:
+                if start_t <= current_sec < end_t:
+                    active_text = text
+                    break
+            draw_subtitles(draw, active_text)
             
             frame_path = temp_dir / f"frame_{global_frame_idx:05d}.png"
             img.save(frame_path)
@@ -454,27 +524,8 @@ def render_paypal_demo_video():
         
     print(f"[*] Total frames rendered: {global_frame_idx}")
     
-    # 3. Concatenate and pad audio with 50ms smooth boundaries & 80ms crossfade
-    print("[*] Applying 50ms Boundary Fades and 80ms Crossfade Between Acts...")
-    padded_wavs = []
-    crossfade_dur = 0.08
-    # Each segment padded to 32.00 + 4/5 * 0.08 = 32.064s so that 5*32.064 - 4*0.08 = 160.00s
-    seg_pad_dur = 32.064
-    for act_idx in range(total_acts):
-        raw_wav = temp_dir / f"act_{act_idx+1}.wav"
-        pad_wav = temp_dir / f"act_{act_idx+1}_padded.wav"
-        raw_dur = get_audio_duration(raw_wav)
-        fade_out_start = max(0.01, raw_dur - 0.05)
-        
-        filter_str = f"afade=t=in:ss=0:d=0.05,afade=t=out:st={fade_out_start:.2f}:d=0.05,apad=whole_dur={seg_pad_dur:.3f}"
-        subprocess.run([
-            "ffmpeg", "-y", "-i", str(raw_wav),
-            "-af", filter_str,
-            str(pad_wav)
-        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        padded_wavs.append(pad_wav)
-        
-    # Perform 80ms crossfade across the 5 acts
+    # 3. Concatenate acts with 80ms crossfade
+    print("[*] Applying 80ms Crossfade Between Acts...")
     crossfade_filter = (
         "[0:a][1:a]acrossfade=d=0.08:c1=tri:c2=tri[a1];"
         "[a1][2:a]acrossfade=d=0.08:c1=tri:c2=tri[a2];"
