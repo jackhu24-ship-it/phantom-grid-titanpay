@@ -54,13 +54,36 @@ try:
 except Exception:
     font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_btn = ImageFont.load_default()
 
-GREEDY_SIZES = [44, 42, 40, 38, 36, 34, 32, 30, 28, 26]
-TARGET_MAX_WIDTH = 2150
+# Subtitle fonts for Office 2 2080px Adaptive Subtitle Operator
+FONT_CANDIDATES = [42, 40, 38, 36, 34, 32, 30, 28]
+SUB_FONTS_DICT = {}
+for sz in FONT_CANDIDATES:
+    try:
+        SUB_FONTS_DICT[sz] = ImageFont.truetype("arialbd.ttf", sz)
+    except Exception:
+        SUB_FONTS_DICT[sz] = ImageFont.load_default()
 
-try:
-    SUB_FONTS = {s: ImageFont.truetype("arialbd.ttf", s) for s in GREEDY_SIZES}
-except Exception:
-    SUB_FONTS = {s: ImageFont.load_default() for s in GREEDY_SIZES}
+
+def get_font(size: int):
+    return SUB_FONTS_DICT.get(size, ImageFont.load_default())
+
+
+def wrap_text_by_words(text: str, font, max_width: float, draw) -> list:
+    """Split text into balanced lines such that no line exceeds max_width."""
+    words = text.split(" ")
+    best_split = len(words) // 2
+    min_diff = 9999
+    for i in range(1, len(words)):
+        l1 = " ".join(words[:i])
+        l2 = " ".join(words[i:])
+        w1 = draw.textlength(l1, font=font)
+        w2 = draw.textlength(l2, font=font)
+        if w1 <= max_width and w2 <= max_width:
+            diff = abs(w1 - w2)
+            if diff < min_diff:
+                min_diff = diff
+                best_split = i
+    return [" ".join(words[:best_split]), " ".join(words[best_split:])]
 
 
 def generate_sentence_wav(text: str, output_wav: Path):
@@ -138,54 +161,62 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
     draw.text((1945, 36), status_text, font=font_body_bold, fill=(16, 185, 129))
 
 
-def draw_subtitles(draw, current_text: str):
-    """
-    Broadcast Subtitle Bar with Top-Down Greedy Font Fit Algorithm:
-    - Target max width: TARGET_MAX_WIDTH = 2150 px.
-    - Candidate sizes: [44, 42, 40, 38, 36, 34, 32, 30, 28, 26] (top-down greedy evaluation).
-    - If size 26pt still > 2150px, wraps into 2 lines at 28pt.
-    - Eliminates empty space with telemetry header bar, separator line, and proportional typography.
-    """
-    box = [60, 1150, 2500, 1330]
+# ==============================================================================
+# PHANToM GRID 1440P 字幕幾何自動調整核心算子 (二辦小米標準規格)
+# ==============================================================================
+def render_adaptive_subtitle(draw, subtitle_text: str, box_left=80, box_top=1150, box_w=2400, box_h=180):
+    # 0. 精美科技字幕外框與頂部導航資訊
+    box = [box_left, box_top, box_left + box_w, box_top + box_h]
     draw.rounded_rectangle(box, radius=12, fill=(10, 16, 28), outline=(0, 229, 255), width=3)
-    
-    # Subtitle Header Bar
-    draw.text((95, 1165), "[AI NARRATOR] VERBATIM SPEECH SYNCHRONIZED", font=font_sub_head, fill=(251, 191, 36))
-    draw.text((1920, 1167), "AUDIO TELEMETRY: 22.05 kHz / -28dB ACTIVE", font=font_mono_sm, fill=(56, 189, 248))
-    draw.line([(85, 1202), (2475, 1202)], fill=(30, 58, 95), width=1)
-    
-    chosen_size = None
-    chosen_w = None
-    lines = [current_text]
-    
-    for size in GREEDY_SIZES:
-        f = SUB_FONTS[size]
-        w = draw.textlength(current_text, font=f)
-        if w <= TARGET_MAX_WIDTH:
+    draw.text((box_left + 35, box_top + 15), "[AI NARRATOR] VERBATIM SPEECH SYNCHRONIZED", font=font_sub_head, fill=(251, 191, 36))
+    draw.text((1920, box_top + 17), "AUDIO TELEMETRY: 22.05 kHz / -28dB ACTIVE", font=font_mono_sm, fill=(56, 189, 248))
+    draw.line([(box_left + 25, box_top + 52), (box_left + box_w - 25, box_top + 52)], fill=(30, 58, 95), width=1)
+
+    # 1. 統帥指定死卡邊界常數
+    PADDING_X = 160  # 左右各死鎖 160px
+    MAX_TEXT_WIDTH = box_w - (PADDING_X * 2)  # 2400 - 320 = 2080 px
+
+    # 2. 自動調整字級階梯 (由大到小貪婪試探，兼顧飽滿度與安全性)
+    FONT_CANDIDATES = [42, 40, 38, 36, 34, 32, 30, 28]
+
+    chosen_font = None
+    chosen_size = 28
+    lines = [subtitle_text]
+
+    # [階段一：單行優先試探] 只要單行能塞進 2080px，強制取最大的字級！
+    for size in FONT_CANDIDATES:
+        font = get_font(size)
+        text_w = draw.textlength(subtitle_text, font=font)
+        if text_w <= MAX_TEXT_WIDTH:
+            chosen_font = font
             chosen_size = size
-            chosen_w = w
-            chosen_font = f
+            lines = [subtitle_text]
             break
-            
-    if chosen_size is None:
-        # Fallback for extreme sentences: wrap to 2 lines at 28pt
+
+    # [階段二：極限長句自適應折行] 若 28pt 仍超過 2080px，自動拆為兩行並鎖定 28pt~30pt
+    if chosen_font is None:
         chosen_size = 28
-        chosen_font = SUB_FONTS[28]
-        lines = textwrap.wrap(current_text, width=70)
-        chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
-        
-    if len(lines) == 1:
-        # Single-line centered horizontally and vertically in bottom area (y=1202 to y=1330)
-        x = int((CANVAS_WIDTH - chosen_w) / 2)
-        y = int(1266 - chosen_size / 2)
-        draw.text((x, y), lines[0], font=chosen_font, fill=(255, 255, 255))
-    else:
-        # Two-lines centered horizontally
-        for i, line_str in enumerate(lines[:2]):
-            lw = draw.textlength(line_str, font=chosen_font)
-            lx = int((CANVAS_WIDTH - lw) / 2)
-            ly = 1222 + i * 44
-            draw.text((lx, ly), line_str, font=chosen_font, fill=(255, 255, 255))
+        chosen_font = get_font(chosen_size)
+        lines = wrap_text_by_words(subtitle_text, chosen_font, MAX_TEXT_WIDTH, draw)
+
+    # 3. 畫布絕對居中渲染 (水平居中 + 垂直居中)
+    content_top = box_top + 52
+    content_h = box_h - 52
+    line_height = chosen_size * 1.3
+    total_text_h = len(lines) * line_height
+    start_y = content_top + (content_h - total_text_h) / 2
+
+    for i, line in enumerate(lines):
+        line_w = draw.textlength(line, font=chosen_font)
+        # 居中計算：以 box_left + PADDING_X 為基礎，在 2080px 寬度內置中
+        pos_x = (box_left + PADDING_X) + (MAX_TEXT_WIDTH - line_w) / 2
+        pos_y = start_y + (i * line_height)
+        draw.text((pos_x, pos_y), line, font=chosen_font, fill=(255, 255, 255))
+
+
+def draw_subtitles(draw, current_text: str):
+    """Bridge function mapping to Office 2 render_adaptive_subtitle standard operator."""
+    render_adaptive_subtitle(draw, current_text, box_left=80, box_top=1150, box_w=2400, box_h=180)
 
 
 def get_dynamic_telemetry(card_title: str, base_val: str, progress: float) -> str:
@@ -295,7 +326,7 @@ def render_paypal_demo_video():
                 "act": 1,
                 "title": "ARCHITECTURE & TITANPAY PROTOCOL",
                 "sentences": [
-                    "Welcome to PHANToM Grid, presenting our flagship autonomous clearing engine for the PayPal Global AI Hackathon.",
+                    "Welcome to PHANToM Grid TitanPay, autonomous clearing engine for the PayPal Global AI Hackathon.",
                     "While conventional multi-agent frameworks suffer from ledger divergence and stranded capital, TitanPay engineers atomic Delivery-versus-Payment clearing.",
                     "Our deterministic state machine eliminates counterparty default risk across high-frequency agent commerce with formal mathematical finality."
                 ],
