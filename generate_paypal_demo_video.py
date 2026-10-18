@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-PHANToM GRID // PAYPAL 1440P DEMO VIDEO RENDERER (V4 Broadcast Standard)
+PHANToM GRID // PAYPAL 1440P DEMO VIDEO RENDERER (V5 Master Broadcast Standard)
 Tournament: PayPal AI Hackathon 2026
 
-Core Upgrades in V4:
-1. Dynamic Auto-Fit Subtitles: Single-line priority with adaptive font scaling (32pt -> 28pt -> 26pt),
-   horizontally centered, max 2 lines only if >2200px at 26pt, eliminating vertical waste.
-2. Boundary Fade-In/Fade-Out: 50ms smooth audio fade at head and tail of each act's speech, eliminating pop/click.
-3. Audio Crossfade & Ambience Bed: -28dB warm pink-noise low-pass filtered (350Hz) cyber ambience bed running
-   across full 160s, completely eliminating 0dB dead silence during pauses.
-4. Smooth Speech Punctuation: Clean standard punctuation, removing long breaks.
-5. Invariant Telemetry & Safe Header: Verified zero mojibake (ASCII 'x'), dynamic +/- 0.5% micro-jitter,
-   and >= 274px header safety gap.
+Core Algorithmic Upgrades in V5:
+1. Dynamic Auto-Fit Single-Line Priority:
+   - Default: font_size = 32pt single-line centered.
+   - Font metrics measurement: draw.textlength(text, font).
+   - Adaptive scaling: <= 2000px at 32pt; if 2000px ~ 2200px, dynamically scale to 28pt or 26pt.
+   - Fallback to 2 lines only if text exceeds 2200px at 26pt.
+   - Eliminates wasted vertical space; elegant, balanced, and readable.
+2. Boundary Crossfading & Ambience Bed:
+   - 50ms (0.05s) linear fade-in and fade-out at speech boundaries to eliminate pop/click.
+   - 80ms smooth acrossfade at segment boundaries between acts.
+   - -28dB deep cyber ambience bed (lowpass filtered pink noise at 350Hz) running continuously across 160s.
+   - Standardized smooth English punctuation, eliminating abnormal long halts.
+3. Pure ASCII & Telemetry:
+   - 'RATIFIED BY COMMANDER JACK HU x SEC XIAOMI' (strict ASCII 'x', zero mojibake).
+   - +/- 0.5% smooth sinusoidal telemetry micro-jitter with LIVE heartbeat pulse.
 """
 
 import os
@@ -70,7 +76,9 @@ def generate_speech_wav(text: str, output_wav: Path):
     speaker.Rate = 0  # Normal speed
     speaker.Volume = 100
     
-    spoken_text = text
+    # Pure clean punctuation and phonetic markup
+    clean_text = text.replace("...", ",").replace("--", ",")
+    spoken_text = clean_text
     spoken_text = spoken_text.replace("Hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
     spoken_text = spoken_text.replace("hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
     spoken_text = spoken_text.replace("TitanPay", '<pron sym="t ay t ax n p ey">TitanPay</pron>')
@@ -126,11 +134,11 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
 
 def draw_subtitles(draw, sentence_idx: int, sentences: list):
     """
-    Broadcast Subtitle Bar with Dynamic Auto-Fit Single-Line Priority:
-    1. Single-line priority: check text length at 32pt -> 28pt -> 26pt.
-    2. Centers text horizontally across the canvas (X center = 1280).
-    3. Bottom Safe Area: bottom margin >= 110px (box bottom at 1330px, 1440 - 1330 = 110px).
-    4. Two-line fallback only if text exceeds 2200px at 26pt.
+    Broadcast Subtitle Bar with Dynamic Auto-Fit Single-Line Priority (V6 Final Standard):
+    - Case A: w <= 2100px with 32pt -> keep 32pt single-line centered.
+    - Case B: 2100px < w <= 2400px -> auto scale down to 28pt or 26pt to keep single line.
+    - Case C: only if w > 2200px at 26pt -> wrap to 2 lines.
+    - Centered vertically and horizontally, eliminating empty space.
     """
     box = [60, 1150, 2500, 1330]
     draw.rounded_rectangle(box, radius=12, fill=(10, 16, 28), outline=(0, 229, 255), width=3)
@@ -140,39 +148,41 @@ def draw_subtitles(draw, sentence_idx: int, sentences: list):
     
     current_text = sentences[min(sentence_idx, len(sentences) - 1)]
     
-    # Measure text length across candidate sizes
+    # Case A: 32pt (max 2100px)
     w32 = draw.textlength(current_text, font=SUB_FONTS[32])
-    w28 = draw.textlength(current_text, font=SUB_FONTS[28])
-    w26 = draw.textlength(current_text, font=SUB_FONTS[26])
-    
-    if w32 <= 2000:
+    if w32 <= 2100:
         chosen_font = SUB_FONTS[32]
         chosen_w = w32
         lines = [current_text]
-    elif w28 <= 2000:
-        chosen_font = SUB_FONTS[28]
-        chosen_w = w28
-        lines = [current_text]
-    elif w26 <= 2200:
-        chosen_font = SUB_FONTS[26]
-        chosen_w = w26
-        lines = [current_text]
     else:
-        # Fallback to 2 lines only if truly necessary
-        chosen_font = SUB_FONTS[26]
-        lines = textwrap.wrap(current_text, width=70)
-        chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
+        # Case B: 28pt or 26pt dynamic reduction
+        w28 = draw.textlength(current_text, font=SUB_FONTS[28])
+        if w28 <= 2100:
+            chosen_font = SUB_FONTS[28]
+            chosen_w = w28
+            lines = [current_text]
+        else:
+            w26 = draw.textlength(current_text, font=SUB_FONTS[26])
+            if w26 <= 2200:
+                chosen_font = SUB_FONTS[26]
+                chosen_w = w26
+                lines = [current_text]
+            else:
+                # Case C: Extreme composite sentence -> 2 lines
+                chosen_font = SUB_FONTS[26]
+                lines = textwrap.wrap(current_text, width=70)
+                chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
     
     if len(lines) == 1:
-        # Single-line centered horizontally
+        # Single-line centered horizontally and vertically
         x = int((CANVAS_WIDTH - chosen_w) / 2)
-        draw.text((x, 1228), lines[0], font=chosen_font, fill=(255, 255, 255))
+        draw.text((x, 1234), lines[0], font=chosen_font, fill=(255, 255, 255))
     else:
         # Two-lines centered horizontally
         for i, line_str in enumerate(lines[:2]):
             lw = draw.textlength(line_str, font=chosen_font)
             lx = int((CANVAS_WIDTH - lw) / 2)
-            ly = 1206 + i * 44
+            ly = 1210 + i * 42
             draw.text((lx, ly), line_str, font=chosen_font, fill=(255, 255, 255))
 
 
@@ -398,7 +408,7 @@ def render_paypal_demo_video():
     }
 
     print("\n" + "=" * 90)
-    print("🎬 RENDERING PAYPAL 1440P DEMO VIDEO (V4: AUTO-FIT SUBTITLES & AUDIO AMBIENCE)")
+    print("🎬 RENDERING PAYPAL 1440P DEMO VIDEO (V5: SINGLE-LINE AUTO-FIT & SMOOTH AMBIENCE)")
     print("=" * 90)
     
     temp_dir = Path("scratch/paypal_video_frames")
@@ -407,7 +417,8 @@ def render_paypal_demo_video():
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     total_acts = len(config["acts"])
-    act_durations = [32.0] * total_acts  # Exact 32.0s per act = 160.0s total duration
+    # 5 acts x 32.0s = 160.0s target
+    act_durations = [32.0] * total_acts
     
     # 1. Synthesize audio per act
     print("[*] Generating SAPI Audio with SSML <speak> & <pron sym='...'> tags...")
@@ -416,13 +427,13 @@ def render_paypal_demo_video():
         wav_path = temp_dir / f"act_{act_idx+1}.wav"
         generate_speech_wav(full_text, wav_path)
         raw_dur = get_audio_duration(wav_path)
-        print(f"  [Act {act_idx+1}] Raw Speech: {raw_dur:.2f}s -> Target Padded: 32.00s")
+        print(f"  [Act {act_idx+1}] Raw Speech: {raw_dur:.2f}s -> Target: 32.00s")
         
     total_duration = sum(act_durations)
     print(f"[*] Total Target Duration: {total_duration:.2f}s (2m 40s)")
     
     # 2. Render frames
-    print("[*] Rendering 1440P Frames with Dynamic Auto-Fit Subtitles...")
+    print("[*] Rendering 1440P Frames with Dynamic Single-Line Auto-Fit Subtitles...")
     global_frame_idx = 0
     for act_idx, act in enumerate(config["acts"]):
         dur = act_durations[act_idx]
@@ -448,17 +459,19 @@ def render_paypal_demo_video():
         
     print(f"[*] Total frames rendered: {global_frame_idx}")
     
-    # 3. Concatenate and pad audio with 50ms smooth boundaries
-    print("[*] Applying 50ms Boundary Fades and Padding Audio Tracks...")
+    # 3. Concatenate and pad audio with 50ms smooth boundaries & 80ms crossfade
+    print("[*] Applying 50ms Boundary Fades and 80ms Crossfade Between Acts...")
     padded_wavs = []
+    crossfade_dur = 0.08
+    # Each segment padded to 32.00 + 4/5 * 0.08 = 32.064s so that 5*32.064 - 4*0.08 = 160.00s
+    seg_pad_dur = 32.064
     for act_idx in range(total_acts):
         raw_wav = temp_dir / f"act_{act_idx+1}.wav"
         pad_wav = temp_dir / f"act_{act_idx+1}_padded.wav"
         raw_dur = get_audio_duration(raw_wav)
         fade_out_start = max(0.01, raw_dur - 0.05)
         
-        # Apply 50ms fade-in, 50ms fade-out, then pad to exactly 32.00s
-        filter_str = f"afade=t=in:ss=0:d=0.05,afade=t=out:st={fade_out_start:.2f}:d=0.05,apad=whole_dur=32.00"
+        filter_str = f"afade=t=in:ss=0:d=0.05,afade=t=out:st={fade_out_start:.2f}:d=0.05,apad=whole_dur={seg_pad_dur:.3f}"
         subprocess.run([
             "ffmpeg", "-y", "-i", str(raw_wav),
             "-af", filter_str,
@@ -466,16 +479,19 @@ def render_paypal_demo_video():
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         padded_wavs.append(pad_wav)
         
-    concat_list = temp_dir / "concat_audio.txt"
-    with open(concat_list, "w", encoding="utf-8") as f:
-        for pw in padded_wavs:
-            f.write(f"file '{pw.name}'\n")
-            
+    # Perform 80ms crossfade across the 5 acts
+    crossfade_filter = (
+        "[0:a][1:a]acrossfade=d=0.08:c1=tri:c2=tri[a1];"
+        "[a1][2:a]acrossfade=d=0.08:c1=tri:c2=tri[a2];"
+        "[a2][3:a]acrossfade=d=0.08:c1=tri:c2=tri[a3];"
+        "[a3][4:a]acrossfade=d=0.08:c1=tri:c2=tri[merged]"
+    )
+    crossfade_cmd = ["ffmpeg", "-y"]
+    for pw in padded_wavs:
+        crossfade_cmd.extend(["-i", str(pw)])
     merged_speech = temp_dir / "merged_speech.wav"
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(concat_list), "-c", "copy", str(merged_speech)
-    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    crossfade_cmd.extend(["-filter_complex", crossfade_filter, "-map", "[merged]", str(merged_speech)])
+    subprocess.run(crossfade_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     # 4. Generate Cyber Ambience Bed (-28dB warm pink noise lowpassed at 350Hz)
     print("[*] Generating Cyber Ambience Bed (-28dB warm low-pass filtered noise)...")
