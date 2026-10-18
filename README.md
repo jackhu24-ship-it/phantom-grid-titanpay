@@ -4,10 +4,16 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PayPal SDK](https://img.shields.io/badge/PayPal-Sandbox_v2_REST-003087.svg)](https://developer.paypal.com/)
+[![Demo Video](https://img.shields.io/badge/YouTube-1440P_Demo_Video-red.svg)](https://youtu.be/3bGpXSNPT9A)
 [![Safety](https://img.shields.io/badge/Safety-ISO_26262_ASIL--D-green.svg)]()
 [![Invariants](https://img.shields.io/badge/Invariants-Sum(Net)%3D0_100%25_Conserved-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/P99_Latency-0.060_ms-success.svg)]()
 [![ZDR](https://img.shields.io/badge/ZDR_Memory_Scrub-0.000000_MB-blue.svg)]()
+
+---
+
+## 📺 Official 1440P Demonstration Video
+Watch the full demonstration on YouTube: **[https://youtu.be/3bGpXSNPT9A](https://youtu.be/3bGpXSNPT9A)**
 
 ---
 
