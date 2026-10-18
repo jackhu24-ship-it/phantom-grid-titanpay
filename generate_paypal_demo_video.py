@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-PHANToM GRID // PAYPAL 1440P DEMO VIDEO RENDERER (Option B Broadcast Standard)
+PHANToM GRID // PAYPAL 1440P DEMO VIDEO RENDERER (V4 Broadcast Standard)
 Tournament: PayPal AI Hackathon 2026
 
-Fixes Applied (Work Order v3):
-1. Subtitle Auto-Wrapping: textwrap with width <= 65 chars, max 2 lines, >= 80px breathing safe margin,
-   zero box overflow.
-2. Mojibake Elimination: Replaced all special non-ASCII symbols ('\u2715') with standard ASCII 'x'.
-3. Terminology & TTS: Standardized on 'counterparty'. SAPI XML <speak> envelope with <pron sym="..."> tags
-   for Hackathon, TitanPay, and Xiaomi.
-4. Dynamic Telemetry: +/- 0.5% smooth sinusoidal perturbation for radar metrics (TPS, latency, cycles)
-   plus live heartbeat indicator.
+Core Upgrades in V4:
+1. Dynamic Auto-Fit Subtitles: Single-line priority with adaptive font scaling (32pt -> 28pt -> 26pt),
+   horizontally centered, max 2 lines only if >2200px at 26pt, eliminating vertical waste.
+2. Boundary Fade-In/Fade-Out: 50ms smooth audio fade at head and tail of each act's speech, eliminating pop/click.
+3. Audio Crossfade & Ambience Bed: -28dB warm pink-noise low-pass filtered (350Hz) cyber ambience bed running
+   across full 160s, completely eliminating 0dB dead silence during pauses.
+4. Smooth Speech Punctuation: Clean standard punctuation, removing long breaks.
+5. Invariant Telemetry & Safe Header: Verified zero mojibake (ASCII 'x'), dynamic +/- 0.5% micro-jitter,
+   and >= 274px header safety gap.
 """
 
 import os
@@ -33,7 +34,7 @@ CANVAS_HEIGHT = 1440
 
 # Fonts setup
 try:
-    font_title = ImageFont.truetype("arialbd.ttf", 40)      # 40pt for safe header
+    font_title = ImageFont.truetype("arialbd.ttf", 40)
     font_h2 = ImageFont.truetype("arialbd.ttf", 32)
     font_body_bold = ImageFont.truetype("arialbd.ttf", 26)
     font_body = ImageFont.truetype("arial.ttf", 22)
@@ -43,11 +44,18 @@ try:
     font_mono_sm = ImageFont.truetype("consola.ttf", 18)
     font_badge = ImageFont.truetype("segoeuib.ttf", 22)
     font_sub_head = ImageFont.truetype("arialbd.ttf", 24)
-    font_sub_text = ImageFont.truetype("arialbd.ttf", 36)
-    font_sub_text_2line = ImageFont.truetype("arialbd.ttf", 30)
+    font_sub_32 = ImageFont.truetype("arialbd.ttf", 32)
+    font_sub_28 = ImageFont.truetype("arialbd.ttf", 28)
+    font_sub_26 = ImageFont.truetype("arialbd.ttf", 26)
     font_btn = ImageFont.truetype("arialbd.ttf", 22)
 except Exception:
-    font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_sub_text = font_sub_text_2line = font_btn = ImageFont.load_default()
+    font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_sub_32 = font_sub_28 = font_sub_26 = font_btn = ImageFont.load_default()
+
+SUB_FONTS = {
+    32: font_sub_32,
+    28: font_sub_28,
+    26: font_sub_26
+}
 
 
 def generate_speech_wav(text: str, output_wav: Path):
@@ -62,7 +70,6 @@ def generate_speech_wav(text: str, output_wav: Path):
     speaker.Rate = 0  # Normal speed
     speaker.Volume = 100
     
-    # Replace Hackathon, TitanPay and Xiaomi with SAPI XML phonetics
     spoken_text = text
     spoken_text = spoken_text.replace("Hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
     spoken_text = spoken_text.replace("hackathon", '<pron sym="h ae k ax th aa n">Hackathon</pron>')
@@ -77,7 +84,6 @@ def generate_speech_wav(text: str, output_wav: Path):
     output_wav.parent.mkdir(parents=True, exist_ok=True)
     filestream.Open(str(output_wav), 3)  # 3 = SSFMCreateForWrite
     speaker.AudioOutputStream = filestream
-    # Flag 8 = SVSFIsXML (Enables SAPI XML phonetic tags)
     speaker.Speak(ssml_envelope, 8)
     filestream.Close()
 
@@ -120,9 +126,11 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
 
 def draw_subtitles(draw, sentence_idx: int, sentences: list):
     """
-    Broadcast Subtitle Bar:
-    Bottom Safe Area: bottom margin >= 110px (box bottom at 1330px, 1440 - 1330 = 110px).
-    Auto-wrapping with textwrap (width <= 65 chars) to prevent line overflow.
+    Broadcast Subtitle Bar with Dynamic Auto-Fit Single-Line Priority:
+    1. Single-line priority: check text length at 32pt -> 28pt -> 26pt.
+    2. Centers text horizontally across the canvas (X center = 1280).
+    3. Bottom Safe Area: bottom margin >= 110px (box bottom at 1330px, 1440 - 1330 = 110px).
+    4. Two-line fallback only if text exceeds 2200px at 26pt.
     """
     box = [60, 1150, 2500, 1330]
     draw.rounded_rectangle(box, radius=12, fill=(10, 16, 28), outline=(0, 229, 255), width=3)
@@ -130,18 +138,42 @@ def draw_subtitles(draw, sentence_idx: int, sentences: list):
     # Gold header
     draw.text((95, 1165), "[AI NARRATOR] VERBATIM SPEECH SYNCHRONIZED", font=font_sub_head, fill=(251, 191, 36))
     
-    # Subtitle text with word wrapping
     current_text = sentences[min(sentence_idx, len(sentences) - 1)]
-    wrapped_lines = textwrap.wrap(current_text, width=65)
     
-    if len(wrapped_lines) <= 1:
-        # Single line: centered vertically in text area
-        line_str = wrapped_lines[0] if wrapped_lines else ""
-        draw.text((95, 1222), line_str, font=font_sub_text, fill=(255, 255, 255))
+    # Measure text length across candidate sizes
+    w32 = draw.textlength(current_text, font=SUB_FONTS[32])
+    w28 = draw.textlength(current_text, font=SUB_FONTS[28])
+    w26 = draw.textlength(current_text, font=SUB_FONTS[26])
+    
+    if w32 <= 2000:
+        chosen_font = SUB_FONTS[32]
+        chosen_w = w32
+        lines = [current_text]
+    elif w28 <= 2000:
+        chosen_font = SUB_FONTS[28]
+        chosen_w = w28
+        lines = [current_text]
+    elif w26 <= 2200:
+        chosen_font = SUB_FONTS[26]
+        chosen_w = w26
+        lines = [current_text]
     else:
-        # Two lines (or max 2 lines): compact spacing
-        draw.text((95, 1205), wrapped_lines[0], font=font_sub_text_2line, fill=(255, 255, 255))
-        draw.text((95, 1248), wrapped_lines[1], font=font_sub_text_2line, fill=(255, 255, 255))
+        # Fallback to 2 lines only if truly necessary
+        chosen_font = SUB_FONTS[26]
+        lines = textwrap.wrap(current_text, width=70)
+        chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
+    
+    if len(lines) == 1:
+        # Single-line centered horizontally
+        x = int((CANVAS_WIDTH - chosen_w) / 2)
+        draw.text((x, 1228), lines[0], font=chosen_font, fill=(255, 255, 255))
+    else:
+        # Two-lines centered horizontally
+        for i, line_str in enumerate(lines[:2]):
+            lw = draw.textlength(line_str, font=chosen_font)
+            lx = int((CANVAS_WIDTH - lw) / 2)
+            ly = 1206 + i * 44
+            draw.text((lx, ly), line_str, font=chosen_font, fill=(255, 255, 255))
 
 
 def get_dynamic_telemetry(card_title: str, base_val: str, progress: float) -> str:
@@ -320,7 +352,7 @@ def render_paypal_demo_video():
                 "act": 4,
                 "title": "LIVE SETTLEMENT PROOF: DISPATCH, ATOMIC SWAP & RECLAIM",
                 "sentences": [
-                    "Witness live execution proof: an incoming agentic payment request is authenticated via PayPal Sandbox v2 in sub-millisecond latency.",
+                    "Witness live execution proof, an incoming agentic payment request is authenticated via PayPal Sandbox v2 in sub-millisecond latency.",
                     "Both legs lock simultaneously into escrow, while our hardware-enforced circuit breaker monitors real-time telemetry.",
                     "When counterparty timeouts occur, our atomic reclaim protocol triggers immediately, refunding 100% of deposited capital with zero loss."
                 ],
@@ -366,7 +398,7 @@ def render_paypal_demo_video():
     }
 
     print("\n" + "=" * 90)
-    print("🎬 RENDERING PAYPAL 1440P DEMO VIDEO (V3: TEXTWRAP & MOJIBAKE CLEANSE)")
+    print("🎬 RENDERING PAYPAL 1440P DEMO VIDEO (V4: AUTO-FIT SUBTITLES & AUDIO AMBIENCE)")
     print("=" * 90)
     
     temp_dir = Path("scratch/paypal_video_frames")
@@ -375,7 +407,7 @@ def render_paypal_demo_video():
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     total_acts = len(config["acts"])
-    act_durations = []
+    act_durations = [32.0] * total_acts  # Exact 32.0s per act = 160.0s total duration
     
     # 1. Synthesize audio per act
     print("[*] Generating SAPI Audio with SSML <speak> & <pron sym='...'> tags...")
@@ -383,17 +415,14 @@ def render_paypal_demo_video():
         full_text = " ".join(act["sentences"])
         wav_path = temp_dir / f"act_{act_idx+1}.wav"
         generate_speech_wav(full_text, wav_path)
-        dur = get_audio_duration(wav_path)
-        # Ensure exact padding for 160.0s timeline (32.0s per act)
-        dur = max(dur + 2.0, 32.0)
-        act_durations.append(dur)
-        print(f"  [Act {act_idx+1}] Duration: {dur:.2f}s")
+        raw_dur = get_audio_duration(wav_path)
+        print(f"  [Act {act_idx+1}] Raw Speech: {raw_dur:.2f}s -> Target Padded: 32.00s")
         
     total_duration = sum(act_durations)
-    print(f"[*] Total Estimated Duration: {total_duration:.2f}s (~{int(total_duration//60)}m {int(total_duration%60)}s)")
+    print(f"[*] Total Target Duration: {total_duration:.2f}s (2m 40s)")
     
     # 2. Render frames
-    print("[*] Rendering 1440P Frames with Subtitles...")
+    print("[*] Rendering 1440P Frames with Dynamic Auto-Fit Subtitles...")
     global_frame_idx = 0
     for act_idx, act in enumerate(config["acts"]):
         dur = act_durations[act_idx]
@@ -419,19 +448,22 @@ def render_paypal_demo_video():
         
     print(f"[*] Total frames rendered: {global_frame_idx}")
     
-    # 3. Concatenate and pad audio
-    print("[*] Concatenating and Padding Audio Tracks to Match Video Duration...")
+    # 3. Concatenate and pad audio with 50ms smooth boundaries
+    print("[*] Applying 50ms Boundary Fades and Padding Audio Tracks...")
     padded_wavs = []
     for act_idx in range(total_acts):
         raw_wav = temp_dir / f"act_{act_idx+1}.wav"
         pad_wav = temp_dir / f"act_{act_idx+1}_padded.wav"
-        dur = act_durations[act_idx]
-        # Pad with silence up to dur
+        raw_dur = get_audio_duration(raw_wav)
+        fade_out_start = max(0.01, raw_dur - 0.05)
+        
+        # Apply 50ms fade-in, 50ms fade-out, then pad to exactly 32.00s
+        filter_str = f"afade=t=in:ss=0:d=0.05,afade=t=out:st={fade_out_start:.2f}:d=0.05,apad=whole_dur=32.00"
         subprocess.run([
             "ffmpeg", "-y", "-i", str(raw_wav),
-            "-af", f"apad=whole_dur={dur:.2f}",
+            "-af", filter_str,
             str(pad_wav)
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         padded_wavs.append(pad_wav)
         
     concat_list = temp_dir / "concat_audio.txt"
@@ -439,13 +471,37 @@ def render_paypal_demo_video():
         for pw in padded_wavs:
             f.write(f"file '{pw.name}'\n")
             
-    merged_wav = temp_dir / "merged_audio.wav"
+    merged_speech = temp_dir / "merged_speech.wav"
     subprocess.run([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(concat_list), "-c", "copy", str(merged_wav)
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        "-i", str(concat_list), "-c", "copy", str(merged_speech)
+    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # 4. Encode final 1440P MP4
+    # 4. Generate Cyber Ambience Bed (-28dB warm pink noise lowpassed at 350Hz)
+    print("[*] Generating Cyber Ambience Bed (-28dB warm low-pass filtered noise)...")
+    ambience_bed = temp_dir / "ambience_bed.wav"
+    ambience_cmd = [
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", "anoisesrc=c=pink:r=22050:a=0.03,lowpass=f=350,volume=-28dB",
+        "-t", f"{total_duration:.2f}",
+        str(ambience_bed)
+    ]
+    subprocess.run(ambience_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # 5. Smoothly mix speech and ambience bed
+    print("[*] Performing Smooth Audio Cross-Mixing (Speech + Ambience Bed)...")
+    final_audio = temp_dir / "final_mixed_audio.wav"
+    mix_cmd = [
+        "ffmpeg", "-y",
+        "-i", str(merged_speech),
+        "-i", str(ambience_bed),
+        "-filter_complex",
+        "[0:a]volume=1.0[voice];[1:a]volume=1.0[bed];[voice][bed]amix=inputs=2:duration=first:dropout_transition=2",
+        str(final_audio)
+    ]
+    subprocess.run(mix_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # 6. Encode final 1440P MP4
     out_path = config["output_path"]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -454,7 +510,7 @@ def render_paypal_demo_video():
         "ffmpeg", "-y",
         "-r", str(FPS),
         "-i", str(temp_dir / "frame_%05d.png"),
-        "-i", str(merged_wav),
+        "-i", str(final_audio),
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         "-r", "60",
