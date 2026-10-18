@@ -50,18 +50,17 @@ try:
     font_mono_sm = ImageFont.truetype("consola.ttf", 18)
     font_badge = ImageFont.truetype("segoeuib.ttf", 22)
     font_sub_head = ImageFont.truetype("arialbd.ttf", 24)
-    font_sub_32 = ImageFont.truetype("arialbd.ttf", 32)
-    font_sub_28 = ImageFont.truetype("arialbd.ttf", 28)
-    font_sub_26 = ImageFont.truetype("arialbd.ttf", 26)
     font_btn = ImageFont.truetype("arialbd.ttf", 22)
 except Exception:
-    font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_sub_32 = font_sub_28 = font_sub_26 = font_btn = ImageFont.load_default()
+    font_title = font_h2 = font_body_bold = font_body = font_mono_xl = font_mono_lg = font_mono_md = font_mono_sm = font_badge = font_sub_head = font_btn = ImageFont.load_default()
 
-SUB_FONTS = {
-    32: font_sub_32,
-    28: font_sub_28,
-    26: font_sub_26
-}
+GREEDY_SIZES = [40, 38, 36, 34, 32, 30, 28, 26]
+TARGET_MAX_WIDTH = 2150
+
+try:
+    SUB_FONTS = {s: ImageFont.truetype("arialbd.ttf", s) for s in GREEDY_SIZES}
+except Exception:
+    SUB_FONTS = {s: ImageFont.load_default() for s in GREEDY_SIZES}
 
 
 def generate_speech_wav(text: str, output_wav: Path):
@@ -134,11 +133,11 @@ def draw_top_nav(draw, main_title: str, act_num: int, act_title: str, status_tex
 
 def draw_subtitles(draw, sentence_idx: int, sentences: list):
     """
-    Broadcast Subtitle Bar with Dynamic Auto-Fit Single-Line Priority (V6 Final Standard):
-    - Case A: w <= 2100px with 32pt -> keep 32pt single-line centered.
-    - Case B: 2100px < w <= 2400px -> auto scale down to 28pt or 26pt to keep single line.
-    - Case C: only if w > 2200px at 26pt -> wrap to 2 lines.
-    - Centered vertically and horizontally, eliminating empty space.
+    Broadcast Subtitle Bar with Top-Down Greedy Font Fit Algorithm:
+    - Target max width: TARGET_MAX_WIDTH = 2150 px.
+    - Candidate sizes: [40, 38, 36, 34, 32, 30, 28, 26] (top-down greedy evaluation).
+    - If size 26pt still > 2150px, wraps into 2 lines at 28pt.
+    - Centered horizontally and vertically in the subtitle box, eliminating empty space.
     """
     box = [60, 1150, 2500, 1330]
     draw.rounded_rectangle(box, radius=12, fill=(10, 16, 28), outline=(0, 229, 255), width=3)
@@ -148,41 +147,37 @@ def draw_subtitles(draw, sentence_idx: int, sentences: list):
     
     current_text = sentences[min(sentence_idx, len(sentences) - 1)]
     
-    # Case A: 32pt (max 2100px)
-    w32 = draw.textlength(current_text, font=SUB_FONTS[32])
-    if w32 <= 2100:
-        chosen_font = SUB_FONTS[32]
-        chosen_w = w32
-        lines = [current_text]
-    else:
-        # Case B: 28pt or 26pt dynamic reduction
-        w28 = draw.textlength(current_text, font=SUB_FONTS[28])
-        if w28 <= 2100:
-            chosen_font = SUB_FONTS[28]
-            chosen_w = w28
-            lines = [current_text]
-        else:
-            w26 = draw.textlength(current_text, font=SUB_FONTS[26])
-            if w26 <= 2200:
-                chosen_font = SUB_FONTS[26]
-                chosen_w = w26
-                lines = [current_text]
-            else:
-                # Case C: Extreme composite sentence -> 2 lines
-                chosen_font = SUB_FONTS[26]
-                lines = textwrap.wrap(current_text, width=70)
-                chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
+    chosen_size = None
+    chosen_w = None
+    lines = [current_text]
     
+    for size in GREEDY_SIZES:
+        f = SUB_FONTS[size]
+        w = draw.textlength(current_text, font=f)
+        if w <= TARGET_MAX_WIDTH:
+            chosen_size = size
+            chosen_w = w
+            chosen_font = f
+            break
+            
+    if chosen_size is None:
+        # Fallback for extreme sentences: wrap to 2 lines at 28pt
+        chosen_size = 28
+        chosen_font = SUB_FONTS[28]
+        lines = textwrap.wrap(current_text, width=70)
+        chosen_w = max(draw.textlength(l, font=chosen_font) for l in lines)
+        
     if len(lines) == 1:
         # Single-line centered horizontally and vertically
         x = int((CANVAS_WIDTH - chosen_w) / 2)
-        draw.text((x, 1234), lines[0], font=chosen_font, fill=(255, 255, 255))
+        y = int(1260 - chosen_size / 2)
+        draw.text((x, y), lines[0], font=chosen_font, fill=(255, 255, 255))
     else:
         # Two-lines centered horizontally
         for i, line_str in enumerate(lines[:2]):
             lw = draw.textlength(line_str, font=chosen_font)
             lx = int((CANVAS_WIDTH - lw) / 2)
-            ly = 1210 + i * 42
+            ly = 1208 + i * 42
             draw.text((lx, ly), line_str, font=chosen_font, fill=(255, 255, 255))
 
 
